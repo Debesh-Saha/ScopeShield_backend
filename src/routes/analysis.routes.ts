@@ -2,6 +2,7 @@ import express, { Router, Request, Response } from "express";
 import { upload } from "../middleware/upload";
 import { AnalysisModel, ProjectModel, ScopeItemModel } from "../db";
 import { generateAnalysisPdf } from "../services/pdfservice";
+import { authMiddleware } from "../middleware/authmiddleware";
 
 const analysisRouter = express.Router();
 
@@ -157,8 +158,8 @@ analysisRouter.post("/:projectId",
     ]),
     createAnalysis
 );
-analysisRouter.get("/:analysisId", getAnalysisById);
-analysisRouter.get("/project/:projectId", getProjectAnalysis);
-analysisRouter.delete("/:analysisId", deleteAnalysis);
-analysisRouter.post("/:analysisId/generate-pdf",generatePdf);
+analysisRouter.get("/:analysisId",authMiddleware, getAnalysisById);
+analysisRouter.get("/project/:projectId", authMiddleware, getProjectAnalysis);
+analysisRouter.delete("/:analysisId", authMiddleware, deleteAnalysis);
+analysisRouter.post("/:analysisId/generate-pdf", authMiddleware, generatePdf);
 export default analysisRouter;
