@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import { ProjectModel, AnalysisModel, ScopeItemModel } from "../db";
+import { authMiddleware } from "../middleware/authmiddleware";
 
 const dashboardRouter = express.Router();
 
@@ -58,6 +59,6 @@ export const getDashboard = async (req: Request, res: Response) => {
   }
 };
 
-dashboardRouter.get("/", getDashboard);
+dashboardRouter.get("/", authMiddleware, getDashboard);
 
 export default dashboardRouter;
