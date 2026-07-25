@@ -3,6 +3,8 @@ import { upload } from "../middleware/upload";
 import { AnalysisModel, ProjectModel, ScopeItemModel } from "../db";
 import { generateAnalysisPdf } from "../services/pdfservice";
 import { authMiddleware } from "../middleware/authmiddleware";
+import { analyzeScope } from "../services/aiservices";
+
 
 const analysisRouter = express.Router();
 
@@ -12,6 +14,7 @@ export const createAnalysis = async (req: Request, res: Response) => {
 
         // Check if project exists
         const project = await ProjectModel.findById(projectId);
+
         if (!project) {
             return res.status(404).json({
                 success: false,
@@ -19,33 +22,94 @@ export const createAnalysis = async (req: Request, res: Response) => {
             });
         }
 
-        // Multer stores uploaded files here
-        const files = req.files as { [fieldname: string]: Express.Multer.File[]; };
-        const chatFiles = files?.chat?.map(file => ({
-            fileName: file.filename,
-            filePath: file.path,
-            originalName: file.originalname,
-            mimeType: file.mimetype
-        })) || [];
+        // Uploaded chat files
+        const files = req.files as {
+            [fieldname: string]: Express.Multer.File[];
+        };
 
+        const chatFiles =
+            files?.chat?.map(file => ({
+                fileName: file.filename,
+                filePath: file.path,
+                originalName: file.originalname,
+                mimeType: file.mimetype
+            })) || [];
+
+        // Create analysis
         const analysis = await AnalysisModel.create({
             projectId,
             chatFiles,
             status: "PENDING"
         });
 
+        // Convert mongoose DocumentArrays into normal arrays
+        const scopeDocs = project.scopeDocuments.map(file => ({
+            fileName: file.fileName!,
+            filePath: file.filePath!,
+            originalName: file.originalName!,
+            mimeType: file.mimeType!
+        }));
+
+        const chatDocs = analysis.chatFiles.map(file => ({
+            fileName: file.fileName!,
+            filePath: file.filePath!,
+            originalName: file.originalName!,
+            mimeType: file.mimeType!
+        }));
+
+        // Run AI only if both exist
+        if (scopeDocs.length > 0 && chatDocs.length > 0) {
+
+            try {
+
+                const aiResult = await analyzeScope(
+                    scopeDocs,
+                    chatDocs
+                );
+
+                for (const item of aiResult) {
+
+                    await ScopeItemModel.create({
+                        analysisId: analysis._id,
+                        featureName: item.featureName,
+                        clientQuote: item.clientQuote,
+                        reasoning: item.reasoning,
+                        estimatedHours: item.estimatedHours,
+                        finalEstimatedHours: item.estimatedHours,
+                        status: item.isOutOfScope
+                            ? "REVIEW_PENDING"
+                            : "APPROVED"
+                    });
+
+                }
+
+                analysis.status = "COMPLETED";
+
+            } catch (err) {
+
+                console.error("AI Error:", err);
+
+                analysis.status = "FAILED";
+            }
+
+            await analysis.save();
+        }
+
         return res.status(201).json({
             success: true,
-            message: "Analysis created successfully.",
+            message: "Analysis completed successfully.",
             data: analysis
         });
 
     } catch (error) {
+
         console.error(error);
+
         return res.status(500).json({
             success: false,
             message: "Unable to create analysis."
         });
+
     }
 };
 
@@ -126,7 +190,7 @@ export const deleteAnalysis = async (req: Request, res: Response) => {
 
 export const generatePdf = async (req: Request, res: Response) => {
     try {
-        const analysisId= req.params.analysisId as string;
+        const analysisId = req.params.analysisId as string;
         const pdfData =
             await generateAnalysisPdf(
                 analysisId
@@ -136,11 +200,11 @@ export const generatePdf = async (req: Request, res: Response) => {
             message: "PDF generated successfully.",
             data: pdfData
         });
-    }catch(error){
+    } catch (error) {
         console.error(error);
         return res.status(500).json({
-            success:false,
-            message:"Unable to generate PDF."
+            success: false,
+            message: "Unable to generate PDF."
         });
     }
 };
@@ -148,17 +212,13 @@ export const generatePdf = async (req: Request, res: Response) => {
 analysisRouter.post("/:projectId",
     upload.fields([
         {
-            name: "scopeDocument",
-            maxCount: 10
-        },
-        {
             name: "chat",
             maxCount: 10
         }
     ]),
     createAnalysis
 );
-analysisRouter.get("/:analysisId",authMiddleware, getAnalysisById);
+analysisRouter.get("/:analysisId", authMiddleware, getAnalysisById);
 analysisRouter.get("/project/:projectId", authMiddleware, getProjectAnalysis);
 analysisRouter.delete("/:analysisId", authMiddleware, deleteAnalysis);
 analysisRouter.post("/:analysisId/generate-pdf", authMiddleware, generatePdf);
