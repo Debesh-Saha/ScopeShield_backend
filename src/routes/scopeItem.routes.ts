@@ -3,6 +3,7 @@ import { ScopeItemModel, AnalysisModel } from "../db";
 
 const scopeItemRouter = express.Router();
 
+
 export const createScopeItems = async (req: Request, res: Response) => {
     try {
         const { analysisId } = req.params;
