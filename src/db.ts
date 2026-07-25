@@ -38,7 +38,7 @@ const AnalysisSchema = new mongoose.Schema(
         chatFiles: [{fileName: String, filePath: String, originalName: String, mimeType: String,uploadedAt: {type: Date, default: Date.now}}],
         totalHours: { type: Number, default: 0 },
         status: { type: String, enum: ["PENDING", "COMPLETED", "FAILED"], default: "PENDING" },
-        pdf: {fileName: String, filePath: String, generatedAt: Date, version: {type: Number, default: 1}, default:null}
+        pdf: {fileName: String, filePath: String, generatedAt: Date, version: {type: Number, default: 1}}
     },
     {
         timestamps: true
