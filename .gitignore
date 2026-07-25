@@ -42,3 +42,6 @@ temp/
 # Package manager cache
 .npm/
 .pnpm-store/
+
+# .md files
+apiroutes.md
