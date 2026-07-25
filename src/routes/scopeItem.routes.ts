@@ -1,5 +1,6 @@
 import express, { Router, Request, Response } from "express";
 import { ScopeItemModel, AnalysisModel } from "../db";
+import { authMiddleware } from "../middleware/authmiddleware";
 
 const scopeItemRouter = express.Router();
 
@@ -128,9 +129,9 @@ export const deleteScopeItem = async (req: Request, res: Response) => {
     }
 };
 
-scopeItemRouter.post("/:analysisId", createScopeItems);
-scopeItemRouter.get("/:analysisId", getScopeItems);
-scopeItemRouter.patch("/:scopeItemId", updateScopeItem);
-scopeItemRouter.delete("/:scopeItemId", deleteScopeItem);
+scopeItemRouter.post("/:analysisId", authMiddleware, createScopeItems);
+scopeItemRouter.get("/:analysisId", authMiddleware, getScopeItems);
+scopeItemRouter.patch("/:scopeItemId", authMiddleware, updateScopeItem);
+scopeItemRouter.delete("/:scopeItemId", authMiddleware, deleteScopeItem);
 
 export default scopeItemRouter;
