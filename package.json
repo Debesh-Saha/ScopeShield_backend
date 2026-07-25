@@ -13,6 +13,19 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "typescript": "^7.0.2"
+    "@types/bcrypt": "^6.0.0",
+    "@types/cors": "^2.8.19",
+    "@types/dotenv": "^6.1.1",
+    "@types/express": "^5.0.6",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.8.0",
+    "multer": "^2.2.0",
+    "pdfkit": "^0.19.1",
+    "typescript": "^7.0.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/multer": "^2.2.0",
+    "@types/pdfkit": "^0.17.6"
   }
 }
