@@ -1,12 +1,20 @@
 import express, { Router, Request, Response } from "express";
 import { ProjectModel } from "../db";
 import { upload } from "../middleware/upload";
+import { authMiddleware } from "../middleware/authmiddleware";
 
 const projectRouter = express.Router();
 
 export const createProject = async (req: Request, res: Response) => {
     try {
         const { projectName, clientName, hourlyRate, currency } = req.body;
+
+        if (!req.userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized"
+            });
+        }
 
         const files = req.files as Express.Multer.File[];
 
@@ -18,6 +26,7 @@ export const createProject = async (req: Request, res: Response) => {
         })) || [];
 
         const project = await ProjectModel.create({
+            owner: req.userId,
             projectName,
             clientName,
             hourlyRate,
@@ -137,10 +146,10 @@ const deleteProject = async (req: Request, res: Response) => {
     }
 };
 
-projectRouter.post("/", upload.array("scopeDocument", 20), createProject);
-projectRouter.get("/", getProjects);
-projectRouter.get("/:id", getProjectById);
-projectRouter.patch("/:id", updateProject);
-projectRouter.delete("/:id", deleteProject);
+projectRouter.post("/", authMiddleware, upload.array("scopeDocument", 20), createProject);
+projectRouter.get("/", authMiddleware, getProjects);
+projectRouter.get("/:id", authMiddleware, getProjectById);
+projectRouter.patch("/:id", authMiddleware, updateProject);
+projectRouter.delete("/:id", authMiddleware, deleteProject);
 
 export default projectRouter;
