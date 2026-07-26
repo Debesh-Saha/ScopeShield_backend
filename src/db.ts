@@ -27,6 +27,7 @@ const ScopeItemSchema = new mongoose.Schema(
         estimatedHours: { type: Number, required: true, min: 0 },
         finalEstimatedHours: { type: Number, required: true, min: 0 },
         status: { type: String, enum: ["REVIEW_PENDING", "APPROVED", "DISMISSED"], default: "REVIEW_PENDING" },
+        isOutOfScope: { type: Boolean, required: true, default: false },
     },
     {
         timestamps: true,
