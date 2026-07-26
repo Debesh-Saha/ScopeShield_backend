@@ -1,5 +1,4 @@
-import fs from "fs";
-import FormData from "form-data";
+import { readFile } from "fs/promises";
 
 interface UploadedFile {
     fileName: string;
@@ -15,34 +14,29 @@ export const analyzeScope = async (
 
     const form = new FormData();
 
-    scopeDocuments.forEach(file => {
+    for (const file of scopeDocuments) {
+        const buffer = await readFile(file.filePath);
         form.append(
             "contract_files",
-            fs.createReadStream(file.filePath),
-            {
-                filename: file.originalName,
-                contentType: file.mimeType
-            }
+            new Blob([buffer], { type: file.mimeType }),
+            file.originalName
         );
-    });
+    }
 
-    chatFiles.forEach(file => {
+    for (const file of chatFiles) {
+        const buffer = await readFile(file.filePath);
         form.append(
             "chat_logs",
-            fs.createReadStream(file.filePath),
-            {
-                filename: file.originalName,
-                contentType: file.mimeType
-            }
+            new Blob([buffer], { type: file.mimeType }),
+            file.originalName
         );
-    });
+    }
 
     const response = await fetch(
         `${process.env.AI_SERVICE_URL}/analyze`,
         {
             method: "POST",
-            headers: form.getHeaders() as any,
-            body: form as any
+            body: form
         }
     );
 
