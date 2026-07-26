@@ -31,7 +31,11 @@ export const generateAnalysisPdf = async (analysisId: string) => {
 
     const symbol = currencySymbols[project.currency] ?? "";
 
-    const scopeItems = await ScopeItemModel.find({ analysisId, status: "APPROVED" }).sort({ createdAt: 1 });
+    const scopeItems = await ScopeItemModel.find({
+        analysisId,
+        status: "APPROVED",
+        isOutOfScope: true
+    }).sort({ createdAt: 1 });;
 
     let totalHours = 0;
     let totalCost = 0;
