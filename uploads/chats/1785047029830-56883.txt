@@ -1,0 +1,28 @@
+[Week 2]
+Client: Hey! Loving the login flow so far, feels smooth.
+Dev: Glad to hear it. Password reset is next on the list.
+Client: Perfect, that's exactly what we agreed on.
+
+[Week 3]
+Client: The dashboard chart looks great. Quick question — could we add
+push notifications so users get alerted when they overspend a category?
+Dev: That wasn't in the original SOW, but it's doable as an add-on if you want.
+Client: Yeah let's do it, it'll really help with engagement.
+
+[Week 4]
+Client: Also been thinking... it would be great if this worked as a native
+mobile app instead of just the web version. Users keep asking.
+Dev: That's a much bigger lift than the current scope, we'd need to scope
+it separately.
+Client: Fair, let's move forward with it anyway, we can figure out timeline.
+
+[Week 4, later]
+Client: One more thing — what about multi-currency support? We have some
+users in Europe.
+Dev: Noted, but that's outside Phase 1.
+Client: Actually never mind, let's not worry about that one for now. Maybe
+a future phase. Just brainstorming out loud.
+
+[Week 5]
+Client: CSV export works well, thanks for turning that around fast.
+Dev: No problem, that one was already part of the plan.

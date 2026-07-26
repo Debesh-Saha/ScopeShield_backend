@@ -1,0 +1,36 @@
+STATEMENT OF WORK
+Project: Fintrack — Personal Budgeting App
+Client: Fintrack Inc.
+Developer: Nova Studio
+
+SCOPE OF WORK
+
+Phase 1 (4 weeks) includes the following deliverables only:
+
+1. User authentication
+   - Email/password signup and login
+   - Password reset via email
+
+2. Dashboard
+   - Monthly spending summary
+   - Category-wise spending chart (bar chart only)
+
+3. Transactions
+   - Manual entry of income and expenses
+   - Basic list view with filter by date range
+
+4. Data export
+   - CSV export of transactions
+
+OUT OF SCOPE (explicitly excluded from Phase 1)
+
+- Bank account syncing / Plaid integration
+- Push notifications
+- Multi-currency support
+- Native mobile apps (iOS/Android)
+- Budgeting goals or recurring bill reminders
+- Team/multi-user accounts
+
+PAYMENT TERMS
+Hourly rate: $45/hr. Invoiced bi-weekly. Any work outside the scope listed
+above requires written approval before it begins.
