@@ -76,6 +76,7 @@ export const createAnalysis = async (req: Request, res: Response) => {
                         reasoning: item.reasoning,
                         estimatedHours: item.estimatedHours,
                         finalEstimatedHours: item.estimatedHours,
+                        isOutOfScope: item.isOutOfScope,
                         status: item.isOutOfScope
                             ? "REVIEW_PENDING"
                             : "APPROVED"
