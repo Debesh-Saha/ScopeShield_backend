@@ -10,7 +10,7 @@ const ProjectSchema = new mongoose.Schema(
         clientName: { type: String, required: true, trim: true },
         hourlyRate: { type: Number, required: true, min: 0 },
         currency: { type: String, enum: ["INR", "USD", "EUR", "GBP"], default: "INR" },
-        scopeDocuments: [{ fileName: String, filePath: String, originalName: String, mimeType: String, uploadedAt: { type: Date, default: Date.now } }],
+        scopeDocuments: [{ fileName: String, fileData: Buffer, originalName: String, mimeType: String, uploadedAt: { type: Date, default: Date.now } }],
         status: { type: String, enum: ["ACTIVE", "COMPLETED", "ARCHIVED"], default: "ACTIVE" },
     },
     {
@@ -37,10 +37,10 @@ const ScopeItemSchema = new mongoose.Schema(
 const AnalysisSchema = new mongoose.Schema(
     {
         projectId: { type: mongoose.Schema.Types.ObjectId, ref: "Project", required: true },
-        chatFiles: [{ fileName: String, filePath: String, originalName: String, mimeType: String, uploadedAt: { type: Date, default: Date.now } }],
+        chatFiles: [{ fileName: String, fileData: Buffer, originalName: String, mimeType: String, uploadedAt: { type: Date, default: Date.now } }],
         totalHours: { type: Number, default: 0 },
         status: { type: String, enum: ["PENDING", "COMPLETED", "FAILED"], default: "PENDING" },
-        pdf: { fileName: String, filePath: String, generatedAt: Date, version: { type: Number, default: 1 } }
+        pdf: { fileName: String, fileData: Buffer, generatedAt: Date, version: { type: Number, default: 1 } }
     },
     {
         timestamps: true

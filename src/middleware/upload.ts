@@ -1,32 +1,6 @@
 import multer from "multer";
-import path from "path";
 
-//This tells Multer WHERE to save uploaded files and WHAT their filenames should be.
-const storage = multer.diskStorage({
-    // Decide which folder to store the uploaded file in
-    destination(req, file, cb) {
-        // Original scope (PDF, TXT, Screenshot etc.)
-        if (file.fieldname === "scopeDocument") {
-            cb(null, "uploads/scope-documents");
-        }
-
-        // New client conversation
-        else if (file.fieldname === "chat") {
-            cb(null, "uploads/chats");
-        }
-
-        // Any unknown field is rejected
-        else {
-            cb(new Error("Invalid upload field"), "");
-        }
-    },
-
-    // Rename the uploaded file to prevent duplication
-    filename(req, file, cb) {
-        const uniqueName = Date.now() + "-" + Math.round(Math.random() * 100000) + path.extname(file.originalname);
-        cb(null, uniqueName);
-    }
-});
+const storage = multer.memoryStorage();
 
 //File Validation: Decide which file types are allowed.
 const fileFilter: multer.Options["fileFilter"] = (req, file, cb) => {

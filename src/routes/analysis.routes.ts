@@ -13,7 +13,7 @@ export const createAnalysis = async (req: Request, res: Response) => {
         const projectId = req.params.projectId as string;
 
         // Check if project exists
-        const project = await ProjectModel.findById(projectId);
+        const project = await ProjectModel.findById(projectId).select("+scopeDocuments.fileData");
 
         if (!project) {
             return res.status(404).json({
@@ -27,10 +27,13 @@ export const createAnalysis = async (req: Request, res: Response) => {
             [fieldname: string]: Express.Multer.File[];
         };
 
+        // With memoryStorage, multer no longer generates file.filename /
+        // file.path (those only exist for diskStorage). The raw bytes are
+        // on file.buffer, so we store them directly on the document.
         const chatFiles =
             files?.chat?.map(file => ({
-                fileName: file.filename,
-                filePath: file.path,
+                fileName: `${Date.now()}-${Math.round(Math.random() * 100000)}`,
+                fileData: file.buffer,
                 originalName: file.originalname,
                 mimeType: file.mimetype
             })) || [];
@@ -42,17 +45,19 @@ export const createAnalysis = async (req: Request, res: Response) => {
             status: "PENDING"
         });
 
-        // Convert mongoose DocumentArrays into normal arrays
+        // Convert mongoose DocumentArrays into normal arrays.
+        // fileData (not filePath) now carries the actual bytes, since
+        // nothing is written to disk anymore.
         const scopeDocs = project.scopeDocuments.map(file => ({
             fileName: file.fileName!,
-            filePath: file.filePath!,
+            fileData: file.fileData as Buffer,
             originalName: file.originalName!,
             mimeType: file.mimeType!
         }));
 
         const chatDocs = analysis.chatFiles.map(file => ({
             fileName: file.fileName!,
-            filePath: file.filePath!,
+            fileData: file.fileData as Buffer,
             originalName: file.originalName!,
             mimeType: file.mimeType!
         }));
@@ -210,6 +215,33 @@ export const generatePdf = async (req: Request, res: Response) => {
     }
 };
 
+export const downloadPdf = async (req: Request, res: Response) => {
+    try {
+        const analysisId = req.params.analysisId as string;
+        const analysis = await AnalysisModel.findById(analysisId).select("+pdf.fileData");
+
+        if (!analysis || !analysis.pdf?.fileData) {
+            return res.status(404).json({
+                success: false,
+                message: "PDF not found. Generate it first."
+            });
+        }
+
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader(
+            "Content-Disposition",
+            `inline; filename="${analysis.pdf.fileName}"`
+        );
+        return res.send(analysis.pdf.fileData);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            success: false,
+            message: "Unable to download PDF."
+        });
+    }
+};
+
 analysisRouter.post("/:projectId",
     upload.fields([
         {
@@ -223,4 +255,5 @@ analysisRouter.get("/:analysisId", authMiddleware, getAnalysisById);
 analysisRouter.get("/project/:projectId", authMiddleware, getProjectAnalysis);
 analysisRouter.delete("/:analysisId", authMiddleware, deleteAnalysis);
 analysisRouter.post("/:analysisId/generate-pdf", authMiddleware, generatePdf);
+analysisRouter.get("/:analysisId/pdf", authMiddleware, downloadPdf);
 export default analysisRouter;

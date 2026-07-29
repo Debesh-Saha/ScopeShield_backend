@@ -1,8 +1,6 @@
-import { readFile } from "fs/promises";
-
 interface UploadedFile {
     fileName: string;
-    filePath: string;
+    fileData: Buffer;
     originalName: string;
     mimeType: string;
 }
@@ -15,19 +13,17 @@ export const analyzeScope = async (
     const form = new FormData();
 
     for (const file of scopeDocuments) {
-        const buffer = await readFile(file.filePath);
         form.append(
             "contract_files",
-            new Blob([buffer], { type: file.mimeType }),
+            new Blob([new Uint8Array(file.fileData)], { type: file.mimeType }),
             file.originalName
         );
     }
 
     for (const file of chatFiles) {
-        const buffer = await readFile(file.filePath);
         form.append(
             "chat_logs",
-            new Blob([buffer], { type: file.mimeType }),
+            new Blob([new Uint8Array(file.fileData)], { type: file.mimeType }),
             file.originalName
         );
     }

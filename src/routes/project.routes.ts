@@ -19,8 +19,8 @@ export const createProject = async (req: Request, res: Response) => {
         const files = req.files as Express.Multer.File[];
 
         const scopeDocuments = files?.map(file => ({
-            fileName: file.filename,
-            filePath: file.path,
+            fileName: `${Date.now()}-${Math.round(Math.random() * 100000)}`,
+            fileData: file.buffer,
             originalName: file.originalname,
             mimeType: file.mimetype
         })) || [];
