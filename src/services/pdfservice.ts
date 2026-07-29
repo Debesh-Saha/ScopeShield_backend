@@ -1,7 +1,4 @@
 import PDFDocument from "pdfkit";
-import fs from "fs";
-import path from "path";
-
 import { AnalysisModel, ProjectModel, ScopeItemModel } from "../db";
 
 const currencySymbols: Record<string, string> = {
@@ -11,32 +8,44 @@ const currencySymbols: Record<string, string> = {
     GBP: "£"
 };
 
-// ---- Design tokens -------------------------------------------------------
 const colors = {
-    primary: "#1e293b",   // slate-800 (headers / band)
-    accent: "#0d9488",    // teal-600 (rules / highlights)
-    text: "#1e293b",      // body text
-    muted: "#64748b",     // secondary labels
-    faint: "#94a3b8",     // very light captions
-    border: "#e2e8f0",    // hairlines / card borders
-    surface: "#f8fafc",   // light card background
-    summaryBg: "#ecfdf5", // soft accent background for totals
-    white: "#ffffff"
+    primary: "#e60023",
+    onPrimary: "#ffffff",
+    ink: "#000000",
+    body: "#33332e",
+    mute: "#62625b",
+    ash: "#91918c",
+    stone: "#c8c8c1",
+    hairline: "#dadad3",
+    hairlineSoft: "#e5e5e0",
+    canvas: "#ffffff",
+    surfaceSoft: "#fbfbf9",
+    surfaceCard: "#f6f6f3",
+    surfaceDark: "#262622",
+    onDark: "#ffffff",
+    onDarkMute: "#c9c9c5",
+    successDeep: "#103c25",
+    successPale: "#c7f0da"
 };
 
+const radius = { md: 14, lg: 26, full: 999 };
+// Tightened scale — the previous version stacked a trailing gap after each
+// block AND a leading gap before the next section, so real gaps were ~1.8x
+// these numbers. Values below are the actual on-page gap now.
+const space = { xxs: 3, xs: 5, sm: 7, md: 10, lg: 14, xl: 20, xxl: 26 };
+
 const PAGE_MARGIN = 50;
-const PAGE_WIDTH = 612;   // Letter width at 72dpi
+const PAGE_WIDTH = 612;
 const CONTENT_WIDTH = PAGE_WIDTH - PAGE_MARGIN * 2;
+const CARD_PAD = 18;
 
 export const generateAnalysisPdf = async (analysisId: string) => {
     const analysis = await AnalysisModel.findById(analysisId);
-
     if (!analysis) {
         throw new Error("Analysis not found.");
     }
 
     const project = await ProjectModel.findById(analysis.projectId);
-
     if (!project) {
         throw new Error("Project not found.");
     }
@@ -51,193 +60,180 @@ export const generateAnalysisPdf = async (analysisId: string) => {
 
     let totalHours = 0;
     let totalCost = 0;
-
     for (const item of scopeItems) {
         const hours = item.finalEstimatedHours ?? item.estimatedHours;
         totalHours += hours;
         totalCost += hours * project.hourlyRate;
     }
 
-    const pdfFolder = path.join(process.cwd(), "uploads", "pdfs");
-
-    if (!fs.existsSync(pdfFolder)) {
-        fs.mkdirSync(pdfFolder, { recursive: true });
-    }
-
     const fileName = `analysis-${analysis._id}-${Date.now()}.pdf`;
-    const pdfPath = path.join(pdfFolder, fileName);
-    const dbPath = `uploads/pdfs/${fileName}`;
-
     const doc = new PDFDocument({ margin: PAGE_MARGIN, bufferPages: true, size: "LETTER" });
-    const stream = fs.createWriteStream(pdfPath);
-    doc.pipe(stream);
+    const chunks: Buffer[] = [];
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
 
     const formatMoney = (amount: number) => `${symbol}${amount.toLocaleString()}`;
 
-    // ---- Layout helpers ---------------------------------------------------
+    const paintPageBackground = () => {
+        doc.rect(0, 0, doc.page.width, doc.page.height).fill(colors.surfaceSoft);
+        doc.fillColor(colors.body);
+    };
+    doc.on("pageAdded", paintPageBackground);
+    paintPageBackground();
 
-    const pageBottom = () => doc.page.height - doc.page.margins.bottom;
+    const pageBottom = () => doc.page.height - doc.page.margins.bottom - 20;
 
-    /** Adds a new page if the upcoming block would overflow the current one. */
     const ensureSpace = (height: number) => {
         if (doc.y + height > pageBottom()) {
             doc.addPage();
+            doc.x = PAGE_MARGIN;
         }
     };
 
-    /** Thin rule across the content width at the current y. */
-    const drawRule = (color: string = colors.border, width: number = 1) => {
-        doc.moveTo(PAGE_MARGIN, doc.y)
-            .lineTo(PAGE_MARGIN + CONTENT_WIDTH, doc.y)
+    const drawHairline = (y: number, color: string = colors.hairline, width: number = 0.75) => {
+        doc.moveTo(PAGE_MARGIN, y)
+            .lineTo(PAGE_MARGIN + CONTENT_WIDTH, y)
             .lineWidth(width)
             .strokeColor(color)
             .stroke();
     };
 
-    /** Section heading: small caps, accent underline, consistent spacing. */
-    const addSectionHeader = (title: string) => {
-        ensureSpace(46);
-        doc.moveDown(0.6);
-        doc.font("Helvetica-Bold")
-            .fontSize(12)
-            .fillColor(colors.primary)
-            .text(title.toUpperCase(), { characterSpacing: 0.6 });
-        doc.moveDown(0.25);
-        drawRule(colors.accent, 1.5);
-        doc.moveDown(0.6);
+    const measurePillWidth = (text: string, fontSize: number, paddingX: number) => {
+        doc.font("Helvetica-Bold").fontSize(fontSize);
+        return doc.widthOfString(text, { characterSpacing: 0.3 }) + paddingX * 2;
     };
 
-    /** A muted caption above a bold value — used for compact fact rows. */
-    const writeField = (label: string, value: string | number, x: number, width: number) => {
-        const y = doc.y;
-        doc.font("Helvetica")
-            .fontSize(8.5)
-            .fillColor(colors.muted)
-            .text(label.toUpperCase(), x, y, { width, characterSpacing: 0.4 });
-        doc.font("Helvetica-Bold")
-            .fontSize(11)
-            .fillColor(colors.text)
-            .text(String(value), x, doc.y + 1, { width });
-    };
-
-    /** Two label/value pairs side by side, sharing a single row height. */
-    const writeFieldRow = (
-        labelA: string, valueA: string | number,
-        labelB?: string, valueB?: string | number
+    const drawPill = (
+        text: string,
+        x: number,
+        y: number,
+        opts?: { fontSize?: number; bg?: string; textColor?: string; paddingX?: number; height?: number }
     ) => {
-        const colWidth = (CONTENT_WIDTH - 20) / 2;
-        const startY = doc.y;
-        writeField(labelA, valueA, PAGE_MARGIN, colWidth);
-        const afterA = doc.y;
-        if (labelB !== undefined && valueB !== undefined) {
-            doc.y = startY;
-            writeField(labelB, valueB, PAGE_MARGIN + colWidth + 20, colWidth);
-        }
-        doc.y = Math.max(afterA, doc.y);
-        doc.moveDown(0.8);
+        const { fontSize = 9, bg = colors.ink, textColor = colors.onDark, paddingX = 12, height = 22 } = opts ?? {};
+        const width = measurePillWidth(text, fontSize, paddingX);
+        doc.roundedRect(x, y, width, height, height / 2).fill(bg);
+        doc.font("Helvetica-Bold").fontSize(fontSize).fillColor(textColor)
+            .text(text, x, y + (height - fontSize) / 2 - 1, { width, align: "center", characterSpacing: 0.3 });
+        doc.fillColor(colors.body);
+        return width;
     };
 
-    /** Longer text field (client quote / reasoning) spanning the full width. */
-    const writeParagraphField = (label: string, value: string) => {
-        doc.font("Helvetica")
-            .fontSize(8.5)
-            .fillColor(colors.muted)
-            .text(label.toUpperCase(), PAGE_MARGIN, doc.y, { characterSpacing: 0.4 });
-        doc.font("Helvetica")
-            .fontSize(10.5)
-            .fillColor(colors.text)
-            .text(value, PAGE_MARGIN, doc.y + 2, { width: CONTENT_WIDTH, lineGap: 2 });
-        doc.moveDown(0.8);
+    const addSectionHeader = (title: string) => {
+        ensureSpace(42);
+        doc.y += space.xl;
+        doc.x = PAGE_MARGIN;
+        doc.font("Helvetica-Bold")
+            .fontSize(13.5)
+            .fillColor(colors.ink)
+            .text(title, PAGE_MARGIN, doc.y, { characterSpacing: -0.2 });
+        doc.y += 16;
+        drawHairline(doc.y);
+        doc.y += space.md;
+    };
+
+    const measureField = (value: string | number, width: number) => {
+        doc.font("Helvetica-Bold").fontSize(10.5);
+        return 13 + doc.heightOfString(String(value), { width });
+    };
+
+    const writeField = (label: string, value: string | number, x: number, width: number, y: number) => {
+        doc.font("Helvetica").fontSize(8).fillColor(colors.mute)
+            .text(label.toUpperCase(), x, y, { width, characterSpacing: 0.6 });
+        doc.font("Helvetica-Bold").fontSize(10.5).fillColor(colors.ink)
+            .text(String(value), x, y + 13, { width });
+    };
+
+    const writeFieldRow = (
+        innerX: number, innerWidth: number, y: number,
+        labelA: string, valueA: string | number,
+        labelB: string, valueB: string | number
+    ) => {
+        const colWidth = (innerWidth - space.lg) / 2;
+        writeField(labelA, valueA, innerX, colWidth, y);
+        writeField(labelB, valueB, innerX + colWidth + space.lg, colWidth, y);
     };
 
     const emptyState = (message: string) => {
-        doc.font("Helvetica-Oblique")
-            .fontSize(10.5)
-            .fillColor(colors.faint)
-            .text(message);
-        doc.moveDown(0.6);
+        doc.font("Helvetica-Oblique").fontSize(9.5).fillColor(colors.ash)
+            .text(message, PAGE_MARGIN, doc.y);
+        doc.y += 14;
     };
 
-    // ---- Cover / title band -------------------------------------------------
-    doc.rect(0, 0, doc.page.width, 108).fill(colors.primary);
+    const drawFileTile = (label: string) => {
+        ensureSpace(32);
+        const tileHeight = 26;
+        const y = doc.y;
+        doc.roundedRect(PAGE_MARGIN, y, CONTENT_WIDTH, tileHeight, radius.md).fill(colors.surfaceCard);
+        doc.font("Helvetica-Bold").fontSize(9.5).fillColor(colors.ink)
+            .text(label, PAGE_MARGIN + CARD_PAD, y + 8, { width: CONTENT_WIDTH - CARD_PAD * 2, lineBreak: false });
+        doc.y = y + tileHeight + space.xs;
+        doc.x = PAGE_MARGIN;
+    };
 
-    doc.font("Helvetica-Bold")
-        .fontSize(21)
-        .fillColor(colors.white)
-        .text("Scope Change Report", PAGE_MARGIN, 32);
+    // ---- Header -------------------------------------------------------------
+    doc.y = PAGE_MARGIN;
+    const headerRowY = doc.y;
 
-    doc.font("Helvetica")
-        .fontSize(11)
-        .fillColor("#cbd5e1")
-        .text(project.projectName, PAGE_MARGIN, 62);
+    drawPill("SCOPE ANALYSIS", PAGE_MARGIN, headerRowY, {
+        bg: colors.primary, textColor: colors.onPrimary, fontSize: 8, paddingX: 11, height: 20
+    });
 
-    doc.font("Helvetica")
-        .fontSize(9)
-        .fillColor("#94a3b8")
-        .text(`Generated ${new Date().toLocaleString()}`, PAGE_MARGIN, 62, {
-            width: CONTENT_WIDTH,
-            align: "right"
+    doc.font("Helvetica").fontSize(8.5).fillColor(colors.ash)
+        .text(`Generated ${new Date().toLocaleString()}`, PAGE_MARGIN, headerRowY + 4, {
+            width: CONTENT_WIDTH, align: "right"
         });
 
-    doc.fillColor(colors.text);
-    doc.y = 140;
+    doc.y = headerRowY + 20 + space.md;
+    doc.font("Helvetica-Bold").fontSize(26).fillColor(colors.ink)
+        .text("Scope Change Report", PAGE_MARGIN, doc.y, { characterSpacing: -0.4 });
+
+    doc.y += 30;
+    doc.font("Helvetica").fontSize(11.5).fillColor(colors.mute)
+        .text(project.projectName, PAGE_MARGIN, doc.y);
+
+    doc.y += 22;
+    drawHairline(doc.y);
+    doc.y += space.sm;
 
     // ---- Project Information -------------------------------------------
-    addSectionHeader("Project Information");
+    addSectionHeader("Project information");
+
+    const infoInnerX = PAGE_MARGIN + CARD_PAD;
+    const infoInnerWidth = CONTENT_WIDTH - CARD_PAD * 2;
+    const colWidth = (infoInnerWidth - space.lg) / 2;
+    const row1Height = Math.max(measureField(project.projectName, colWidth), measureField(project.clientName, colWidth));
+    const row2Height = Math.max(
+        measureField(`${formatMoney(project.hourlyRate)} / hr`, colWidth),
+        measureField(project.currency, colWidth)
+    );
+    const infoBoxHeight = CARD_PAD + row1Height + space.md + row2Height + CARD_PAD;
 
     const infoBoxY = doc.y;
-    const infoBoxHeight = 92;
-    doc.roundedRect(PAGE_MARGIN, infoBoxY, CONTENT_WIDTH, infoBoxHeight, 4)
-        .fillColor(colors.surface)
-        .fill();
-    doc.fillColor(colors.text);
+    doc.roundedRect(PAGE_MARGIN, infoBoxY, CONTENT_WIDTH, infoBoxHeight, radius.md).fill(colors.surfaceCard);
 
-    doc.y = infoBoxY + 14;
-    writeFieldRow("Project Name", project.projectName, "Client Name", project.clientName);
+    writeFieldRow(infoInnerX, infoInnerWidth, infoBoxY + CARD_PAD, "Project name", project.projectName, "Client name", project.clientName);
+    writeFieldRow(infoInnerX, infoInnerWidth, infoBoxY + CARD_PAD + row1Height + space.md, "Hourly rate", `${formatMoney(project.hourlyRate)} / hr`, "Currency", project.currency);
+
+    doc.y = infoBoxY + infoBoxHeight + space.sm;
     doc.x = PAGE_MARGIN;
-    writeFieldRow(
-        "Hourly Rate", `${formatMoney(project.hourlyRate)} / hr`,
-        "Currency", project.currency
-    );
-    doc.x = PAGE_MARGIN;
-    doc.y = infoBoxY + infoBoxHeight + 10;
 
     // ---- Original Scope Documents ---------------------------------------
-    addSectionHeader("Original Scope Documents");
-
+    addSectionHeader("Original scope documents");
     if (project.scopeDocuments.length === 0) {
         emptyState("No scope documents uploaded.");
     } else {
-        project.scopeDocuments.forEach(file => {
-            ensureSpace(18);
-            doc.font("Helvetica")
-                .fontSize(10.5)
-                .fillColor(colors.text)
-                .text(`•  ${file.originalName}`);
-            doc.moveDown(0.15);
-        });
-        doc.moveDown(0.4);
+        project.scopeDocuments.forEach(file => drawFileTile(file.originalName ?? "Untitled file"));
     }
 
-    // ---- Client Request Files ---------------------------------------------
-    addSectionHeader("Client Request Files");
-
+    // ---- Client Request Files -----------------------------------------------
+    addSectionHeader("Client request files");
     if (analysis.chatFiles.length === 0) {
         emptyState("No request files uploaded.");
     } else {
-        analysis.chatFiles.forEach(file => {
-            ensureSpace(18);
-            doc.font("Helvetica")
-                .fontSize(10.5)
-                .fillColor(colors.text)
-                .text(`•  ${file.originalName}`);
-            doc.moveDown(0.15);
-        });
-        doc.moveDown(0.4);
+        analysis.chatFiles.forEach(file => drawFileTile(file.originalName ?? "Untitled file"));
     }
 
-    // ---- Approved Scope Changes --------------------------------------------
-    addSectionHeader("Approved Scope Changes");
+    // ---- Approved Scope Changes ----------------------------------------------
+    addSectionHeader("Approved scope changes");
 
     if (scopeItems.length === 0) {
         emptyState("No approved scope changes found.");
@@ -245,135 +241,163 @@ export const generateAnalysisPdf = async (analysisId: string) => {
         scopeItems.forEach((item, index) => {
             const hours = item.finalEstimatedHours ?? item.estimatedHours;
             const cost = hours * project.hourlyRate;
+            const innerWidth = CONTENT_WIDTH - CARD_PAD * 2;
 
-            // Reserve a little room so a card's header doesn't get orphaned
-            // at the bottom of a page.
-            ensureSpace(70);
+            doc.font("Helvetica-Bold").fontSize(13.5);
+            const titleHeight = doc.heightOfString(item.featureName, { width: innerWidth, characterSpacing: -0.2 });
 
-            const cardY = doc.y;
+            doc.font("Helvetica").fontSize(9.5);
+            const quoteHeight = doc.heightOfString(item.clientQuote, { width: innerWidth, lineGap: 4 });
+            const reasonHeight = doc.heightOfString(item.reasoning, { width: innerWidth, lineGap: 4 });
 
-            doc.font("Helvetica-Bold")
-                .fontSize(9)
-                .fillColor(colors.accent)
-                .text(`REQUEST #${index + 1}`, PAGE_MARGIN, cardY, { characterSpacing: 0.5 });
+            const badgeRowH = 20;
+            const titleGap = space.sm;
+            const hairlineGap = space.lg;
+            const paragraphCaptionH = 10 + space.xxs;
+            const paragraphGap = space.sm;
+            const chipRowH = 22;
 
-            doc.font("Helvetica-Bold")
-                .fontSize(12.5)
-                .fillColor(colors.primary)
-                .text(item.featureName, PAGE_MARGIN, doc.y + 2);
+            const cardHeight =
+                CARD_PAD +
+                badgeRowH + titleGap +
+                titleHeight + hairlineGap +
+                paragraphCaptionH + quoteHeight + paragraphGap +
+                paragraphCaptionH + reasonHeight + paragraphGap +
+                chipRowH +
+                CARD_PAD;
 
-            doc.moveDown(0.5);
-            drawRule(colors.border, 1);
-            doc.moveDown(0.6);
+            ensureSpace(cardHeight + space.lg);
 
-            writeParagraphField("Client Request", item.clientQuote);
-            writeParagraphField("Reason", item.reasoning);
-            writeFieldRow("Estimated Hours", hours, "Cost", formatMoney(cost));
+            const cardTop = doc.y;
+            const cardBg = index % 2 === 0 ? colors.canvas : colors.surfaceCard;
+            const chipBg = cardBg === colors.canvas ? colors.surfaceCard : colors.canvas;
+
+            doc.roundedRect(PAGE_MARGIN, cardTop, CONTENT_WIDTH, cardHeight, radius.md).fill(cardBg);
+
+            const innerX = PAGE_MARGIN + CARD_PAD;
+            let y = cardTop + CARD_PAD;
+
+            const badgeW = drawPill(`REQUEST ${String(index + 1).padStart(2, "0")}`, innerX, y, {
+                bg: colors.ink, textColor: colors.onDark, fontSize: 8, paddingX: 10, height: badgeRowH
+            });
+            drawPill("APPROVED", innerX + badgeW + space.xs, y, {
+                bg: colors.successPale, textColor: colors.successDeep, fontSize: 8, paddingX: 10, height: badgeRowH
+            });
+
+            y += badgeRowH + titleGap;
+            doc.font("Helvetica-Bold").fontSize(13.5).fillColor(colors.ink)
+                .text(item.featureName, innerX, y, { width: innerWidth, characterSpacing: -0.2 });
+
+            y += titleHeight + space.xs;
+            drawHairline(y, colors.hairlineSoft, 0.5);
+            y += hairlineGap - space.xs;
+
+            doc.font("Helvetica").fontSize(8).fillColor(colors.mute)
+                .text("CLIENT REQUEST", innerX, y, { characterSpacing: 0.6 });
+            y += paragraphCaptionH;
+            doc.font("Helvetica").fontSize(9.5).fillColor(colors.body)
+                .text(item.clientQuote, innerX, y, { width: innerWidth, lineGap: 4 });
+            y += quoteHeight + paragraphGap;
+
+            doc.font("Helvetica").fontSize(8).fillColor(colors.mute)
+                .text("REASON", innerX, y, { characterSpacing: 0.6 });
+            y += paragraphCaptionH;
+            doc.font("Helvetica").fontSize(9.5).fillColor(colors.body)
+                .text(item.reasoning, innerX, y, { width: innerWidth, lineGap: 4 });
+            y += reasonHeight + paragraphGap;
+
+            const hoursChipWidth = drawPill(`${hours} HRS`, innerX, y, {
+                bg: chipBg, textColor: colors.ink, fontSize: 9, paddingX: 12, height: chipRowH
+            });
+            drawPill(formatMoney(cost), innerX + hoursChipWidth + space.xs, y, {
+                bg: chipBg, textColor: colors.ink, fontSize: 9, paddingX: 12, height: chipRowH
+            });
+
+            doc.y = cardTop + cardHeight + space.lg;
             doc.x = PAGE_MARGIN;
-
-            doc.moveDown(0.3);
-            if (index < scopeItems.length - 1) {
-                drawRule(colors.border, 1);
-                doc.moveDown(0.8);
-            }
         });
     }
 
     // ---- Summary ------------------------------------------------------------
     addSectionHeader("Summary");
 
-    const summaryHeight = 60;
+    const summaryHeight = 86;
     ensureSpace(summaryHeight + 10);
     const summaryY = doc.y;
+    const half = CONTENT_WIDTH / 2;
 
-    doc.roundedRect(PAGE_MARGIN, summaryY, CONTENT_WIDTH, summaryHeight, 4)
-        .fillColor(colors.summaryBg)
-        .fill();
+    doc.rect(PAGE_MARGIN, summaryY, CONTENT_WIDTH, summaryHeight).fill(colors.surfaceDark);
 
-    const summaryColWidth = CONTENT_WIDTH / 2;
+    doc.moveTo(PAGE_MARGIN + half, summaryY + 18)
+        .lineTo(PAGE_MARGIN + half, summaryY + summaryHeight - 18)
+        .lineWidth(0.5)
+        .strokeColor(colors.surfaceCard)
+        .strokeOpacity(0.15)
+        .stroke()
+        .strokeOpacity(1);
 
-    doc.font("Helvetica")
-        .fontSize(9)
-        .fillColor(colors.muted)
-        .text("APPROVED HOURS", PAGE_MARGIN + 18, summaryY + 14, { characterSpacing: 0.4 });
-    doc.font("Helvetica-Bold")
-        .fontSize(18)
-        .fillColor(colors.primary)
-        .text(String(totalHours), PAGE_MARGIN + 18, summaryY + 28);
+    const writeStat = (label: string, value: string, x: number, color: string) => {
+        doc.font("Helvetica").fontSize(9).fillColor(colors.onDarkMute)
+            .text(label, x, summaryY + 22, { width: half, align: "center", characterSpacing: 0.6 });
+        doc.font("Helvetica-Bold").fontSize(25).fillColor(color)
+            .text(value, x, summaryY + 37, { width: half, align: "center", characterSpacing: -0.4 });
+    };
 
-    doc.font("Helvetica")
-        .fontSize(9)
-        .fillColor(colors.muted)
-        .text("TOTAL COST", PAGE_MARGIN + summaryColWidth, summaryY + 14, { characterSpacing: 0.4 });
-    doc.font("Helvetica-Bold")
-        .fontSize(18)
-        .fillColor(colors.accent)
-        .text(formatMoney(totalCost), PAGE_MARGIN + summaryColWidth, summaryY + 28);
+    writeStat("APPROVED HOURS", String(totalHours), PAGE_MARGIN, colors.onDark);
+    writeStat("TOTAL COST", formatMoney(totalCost), PAGE_MARGIN + half, colors.primary);
 
-    doc.y = summaryY + summaryHeight + 16;
+    doc.y = summaryY + summaryHeight + space.sm;
     doc.x = PAGE_MARGIN;
 
     // ---- Notes ---------------------------------------------------------------
     addSectionHeader("Notes");
-    doc.font("Helvetica")
-        .fontSize(10)
-        .fillColor(colors.muted)
+    doc.font("Helvetica").fontSize(9.5).fillColor(colors.mute)
         .text(
             "This report contains work identified as outside the original agreed scope. Pricing reflects only the approved additional work for this analysis.",
-            { lineGap: 2 }
+            PAGE_MARGIN, doc.y, { width: CONTENT_WIDTH, lineGap: 5 }
         );
 
-    // ---- Footer & page numbers on every page ---------------------------------
+    // ---- Footer: a stadium pill bar, reusing the doc's own pill language ----
     const range = doc.bufferedPageRange();
     for (let i = range.start; i < range.start + range.count; i++) {
         doc.switchToPage(i);
-
-        // Writing below the normal bottom margin would otherwise make pdfkit
-        // think the content overflowed and silently append a fresh blank
-        // page for every footer we draw. Zero the margin out just for this,
-        // then restore it so nothing else on the page is affected.
         const originalBottomMargin = doc.page.margins.bottom;
         doc.page.margins.bottom = 0;
 
-        const footerY = doc.page.height - originalBottomMargin + 18;
+        const barHeight = 28;
+        const barY = doc.page.height - originalBottomMargin - barHeight + 22;
 
-        doc.moveTo(PAGE_MARGIN, footerY - 8)
-            .lineTo(PAGE_MARGIN + CONTENT_WIDTH, footerY - 8)
-            .lineWidth(0.75)
-            .strokeColor(colors.border)
-            .stroke();
+        doc.roundedRect(PAGE_MARGIN, barY, CONTENT_WIDTH, barHeight, barHeight / 2).fill(colors.surfaceCard);
 
-        doc.font("Helvetica")
-            .fontSize(8.5)
-            .fillColor(colors.faint)
-            .text("Generated automatically by ScopeShield", PAGE_MARGIN, footerY, {
-                width: CONTENT_WIDTH / 2,
-                align: "left",
-                lineBreak: false
-            });
+        const dotX = PAGE_MARGIN + 16;
+        doc.circle(dotX, barY + barHeight / 2, 3).fill(colors.primary);
 
-        doc.font("Helvetica")
-            .fontSize(8.5)
-            .fillColor(colors.faint)
-            .text(`Page ${i - range.start + 1} of ${range.count}`, PAGE_MARGIN + CONTENT_WIDTH / 2, footerY, {
-                width: CONTENT_WIDTH / 2,
-                align: "right",
-                lineBreak: false
-            });
+        doc.font("Helvetica-Bold").fontSize(7.5).fillColor(colors.ink)
+            .text("ScopeShield", dotX + 8, barY + barHeight / 2 - 3.5, { lineBreak: false });
+
+        const wordmarkWidth = doc.widthOfString("ScopeShield", { characterSpacing: 0.2 });
+        doc.font("Helvetica").fontSize(7.5).fillColor(colors.ash)
+            .text("· Generated automatically", dotX + 8 + wordmarkWidth + 6, barY + barHeight / 2 - 3.5, { lineBreak: false });
+
+        const pageLabel = `${String(i - range.start + 1).padStart(2, "0")} / ${String(range.count).padStart(2, "0")}`;
+        const badgeWidth = measurePillWidth(pageLabel, 7.5, 10);
+        drawPill(pageLabel, PAGE_MARGIN + CONTENT_WIDTH - badgeWidth - 5, barY + (barHeight - 18) / 2, {
+            bg: colors.ink, textColor: colors.onDark, fontSize: 7.5, paddingX: 10, height: 18
+        });
 
         doc.page.margins.bottom = originalBottomMargin;
     }
 
     doc.end();
 
-    await new Promise<void>((resolve, reject) => {
-        stream.on("finish", () => resolve());
-        stream.on("error", reject);
+    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+        doc.on("end", () => resolve(Buffer.concat(chunks)));
+        doc.on("error", reject);
     });
 
     analysis.pdf = {
         fileName,
-        filePath: dbPath,
+        fileData: pdfBuffer,
         generatedAt: new Date(),
         version: analysis.pdf?.version ? analysis.pdf.version + 1 : 1
     };
@@ -381,10 +405,5 @@ export const generateAnalysisPdf = async (analysisId: string) => {
     analysis.totalHours = totalHours;
     await analysis.save();
 
-    return {
-        fileName,
-        filePath: dbPath,
-        totalHours,
-        totalCost
-    };
+    return { fileName, totalHours, totalCost };
 };
